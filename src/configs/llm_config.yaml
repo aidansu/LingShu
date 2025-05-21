@@ -15,6 +15,10 @@ model_providers:
       qwen-plus:
         model_name:
         - "qwen-plus"
+      qwen3:
+        model_name:
+        - "qwen3-235b-a22b"
+        - "qwen3-30b-a3b"
   qianfan:
     client: "openai"  # 使用OpenAI兼容客户端
     base_url: "https://qianfan.baidubce.com/v2"

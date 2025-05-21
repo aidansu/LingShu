@@ -1,17 +1,28 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 
 from src.configs.config import LLM_CONFIG
 from src.llm.llm_factory import init_chat_llm
 
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 
-class ChatRequest(BaseModel):
+class ChatReq(BaseModel):
     model: str
     message: str
+
+
+class ChatResp(BaseModel):
+    type: str
+    title: str | None = None
+    content: str | None = None
+    msg: str | None = None
 
 
 @app.get("/")
@@ -46,22 +57,42 @@ async def list_models():
         )
 
 
-@app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+@app.post("/chat-invoke")
+async def chat_invoke(request: ChatReq):
     try:
         # 初始化模型
         llm = init_chat_llm(request.model).with_config(temperature=0.6)
-
         # 调用模型
         response = await llm.ainvoke(request.message)
-
-        return {
-            "model": request.model,
-            "response": response.content
-        }
+        # 返回结果
+        response_obj = ChatResp(type="text", msg=response.content)
+        return response_obj.model_dump(exclude_none=True)
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error processing request: {str(e)}"
         )
 
+
+@app.post("/chat-stream")
+async def chat_stream(request: ChatReq):
+    try:
+        # 初始化模型
+        llm = init_chat_llm(request.model)
+
+        # 创建异步生成器来流式响应
+        async def generate():
+            async for chunk in llm.astream(request.message):
+                response_obj = ChatResp(type="text", msg=chunk.content)
+                # 假设返回文本数据，按需调整格式
+                yield f"data: {response_obj.model_dump_json(exclude_none=True)}\n\n"
+            # 添加结束标记
+            yield f"data: [DONE]\n\n"
+
+        # 使用StreamingResponse流式传输数据
+        return StreamingResponse(generate(), media_type="text/event-stream")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing request: {str(e)}"
+        )

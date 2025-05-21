@@ -33,6 +33,9 @@ def init_chat_llm(model: str) -> Any:
             model=model,
             model_provider="openai",
             base_url=provider.get("base_url"),
+            # Qwen3模型通过enable_thinking参数控制思考过程（开源版默认True，商业版默认False）
+            # 使用Qwen3开源版模型时，若未启用流式输出，请添加下面参数，否则会报错
+            extra_body={"enable_thinking": False},
             **params
         ),
         "deepseek": lambda provider, model, params: init_chat_model(
