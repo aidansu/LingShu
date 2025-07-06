@@ -104,28 +104,33 @@ async def aconnect_sse(
     async with client.stream(method, url, **kwargs) as response:
         yield EventSource(response)
 
-def _convert_dict_to_message(dct: Dict[str, Any]) -> BaseMessage:
-    role = dct.get("role")
-    content = dct.get("content", "")
+def _convert_dict_to_message(_dict: Dict[str, Any]) -> BaseMessage:
+    role = _dict.get("role")
+    content = _dict.get("content", "")
     if role == "system":
         return SystemMessage(content=content)
     if role == "user":
         return HumanMessage(content=content)
     if role == "assistant":
         additional_kwargs = {}
-        tool_calls = dct.get("tool_calls", None)
+        tool_calls = _dict.get("tool_calls", None)
         if tool_calls is not None:
             additional_kwargs["tool_calls"] = tool_calls
+        elif "reasoning_content" in _dict:
+            additional_kwargs = {"reasoning_content": _dict["reasoning_content"]}
+        else:
+            additional_kwargs = {}
         return AIMessage(content=content, additional_kwargs=additional_kwargs)
     if role == "tool":
         additional_kwargs = {}
-        if "name" in dct:
-            additional_kwargs["name"] = dct["name"]
+        if "name" in _dict:
+            additional_kwargs["name"] = _dict["name"]
         return ToolMessage(
             content=content,
-            tool_call_id=dct.get("tool_call_id"),
+            tool_call_id=_dict.get("tool_call_id"),
             additional_kwargs=additional_kwargs,
         )
+
     return ChatMessage(role=role, content=content)  # type: ignore[arg-type]
 
 
@@ -160,14 +165,16 @@ def _convert_message_to_dict(message: BaseMessage) -> Dict[str, Any]:
 
 
 def _convert_delta_to_message_chunk(
-    dct: Dict[str, Any], default_class: Type[BaseMessageChunk]
+    _dict: Dict[str, Any], default_class: Type[BaseMessageChunk]
 ) -> BaseMessageChunk:
-    role = dct.get("role")
-    content = dct.get("content", "")
+    role = _dict.get("role")
+    content = _dict.get("content", "") or ""
     additional_kwargs = {}
-    tool_calls = dct.get("tool_calls", None)
+    tool_calls = _dict.get("tool_calls", None)
     if tool_calls is not None:
         additional_kwargs["tool_calls"] = tool_calls
+    elif "reasoning_content" in _dict:
+        additional_kwargs = {"reasoning_content": _dict["reasoning_content"]}
 
     if role == "system" or default_class == SystemMessageChunk:
         return SystemMessageChunk(content=content)
@@ -229,6 +236,7 @@ class ChatSiliconFlow(BaseChatModel):
         params = {
             "model": self.model_name,
             "stream": self.streaming,
+            "enable_thinking": self.enable_thinking,
             "temperature": self.temperature,
         }
         if self.max_tokens is not None:
@@ -251,6 +259,8 @@ class ChatSiliconFlow(BaseChatModel):
     """Maximum number of tokens to generate."""
     stop: Optional[Union[List[str], str]] = Field(default=None, alias="stop_sequences")
     """Default stop sequences."""
+    enable_thinking: bool = True
+    thinking_budget: int = 4096
     temperature: float = 0.7
     """What sampling temperature to use."""
     top_p: float = 0.7

@@ -2,7 +2,7 @@ from typing import Any, Dict
 import os
 
 from langchain.chat_models import init_chat_model
-from langchain_community.chat_models import ChatZhipuAI
+from langchain_community.chat_models import ChatZhipuAI, ChatTongyi
 
 from src.configs.config import LLM_CONFIG
 from src.llm.model.ChatSiliconFlow import ChatSiliconFlow
@@ -25,7 +25,7 @@ def create_common_params(provider_name: str) -> Dict[str, str]:
     return {"api_key": api_key}
 
 
-def init_chat_llm(model: str) -> Any:
+def init_chat_llm(model: str, thinking: bool = False, stream: bool = False) -> Any:
     model_providers = LLM_CONFIG["model_providers"]
 
     client_initializers = {
@@ -33,9 +33,6 @@ def init_chat_llm(model: str) -> Any:
             model=model,
             model_provider="openai",
             base_url=provider.get("base_url"),
-            # Qwen3模型通过enable_thinking参数控制思考过程（开源版默认True，商业版默认False）
-            # 使用Qwen3开源版模型时，若未启用流式输出，请添加下面参数，否则会报错
-            extra_body={"enable_thinking": False},
             **params
         ),
         "deepseek": lambda provider, model, params: init_chat_model(
@@ -43,8 +40,20 @@ def init_chat_llm(model: str) -> Any:
             model_provider="deepseek",
             **params
         ),
-        "zhipuai": lambda _, model, params: ChatZhipuAI(model=model, **params),
-        "siliconflow": lambda _, model, params: ChatSiliconFlow(model=model, **params),
+        "dashscope": lambda _, model, params: ChatTongyi(
+            model=model,
+            model_kwargs={"enable_thinking": True if stream and thinking else False},
+            **params
+        ),
+        "zhipuai": lambda _, model, params: ChatZhipuAI(
+            model=model,
+            **params
+        ),
+        "siliconflow": lambda _, model, params: ChatSiliconFlow(
+            model=model,
+            enable_thinking=thinking,
+            **params
+        ),
     }
 
     for provider_name, provider in model_providers.items():

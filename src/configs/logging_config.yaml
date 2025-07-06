@@ -1,0 +1,32 @@
+version: 1
+disable_existing_loggers: false
+formatters:
+  default:
+    format: "[%(asctime)s][%(levelname)s][%(name)s] %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  file:
+    format: "[%(asctime)s][%(levelname)s][%(name)s] %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+handlers:
+  default:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: default
+    stream: ext://sys.stdout
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: DEBUG
+    formatter: file
+    filename: logs/app.log
+    when: D
+    interval: 1
+    backupCount: 7
+    encoding: utf-8
+loggers:
+  src:
+    level: INFO
+    handlers: [default, file]
+  uvicorn:
+    level: INFO
+    propagate: no
+    handlers: [default, file]

@@ -8,17 +8,16 @@ model_providers:
       deepseek-reasoner:
         model_name:
         - "deepseek-reasoner"
+        thinking: True
   dashscope:
-    client: "openai"  # 使用OpenAI兼容客户端
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    client: "dashscope"
     models:
-      qwen-plus:
-        model_name:
-        - "qwen-plus"
       qwen3:
         model_name:
+        - "qwen-plus-2025-04-28"
         - "qwen3-235b-a22b"
         - "qwen3-30b-a3b"
+        thinking: True
   qianfan:
     client: "openai"  # 使用OpenAI兼容客户端
     base_url: "https://qianfan.baidubce.com/v2"
@@ -39,3 +38,8 @@ model_providers:
       deepseek-r1:
         model_name:
         - "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+        thinking: True
+      qwen3:
+        model_name:
+        - "Qwen/Qwen3-8B"
+        thinking: True
