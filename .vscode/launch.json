@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: FastAPI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "src.main:app",
+                "--port",
+                "8000",
+                "--host",
+                "0.0.0.0",
+                "--workers",
+                "1",
+                "--reload"
+            ],
+            "jinja": true,
+            "env": {
+                "OPENAI_API_KEY": "your-api-key",
+                "DEEPSEEK_API_KEY": "your-api-key",
+                "DASHSCOPE_API_KEY": "your-api-key",
+                "ZHIPUAI_API_KEY": "your-api-key",
+                "MOONSHOT_API_KEY": "your-api-key",
+                "ARK_API_KEY": "your-api-key",
+                "QIANFAN_API_KEY": "your-api-key",
+                "SILICONFLOW_API_KEY": "your-api-key"
+            }
+        }
+    ]
+}

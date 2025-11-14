@@ -1,0 +1,218 @@
+vars:
+  # 基础配置
+  base: &base
+    logging:
+      version: 1
+      disable_existing_loggers: false
+      formatters:
+        default:
+          format: "[%(asctime)s][%(levelname)s][%(name)s] %(message)s"
+          datefmt: "%Y-%m-%d %H:%M:%S"
+        file:
+          format: "[%(asctime)s][%(levelname)s][%(name)s] %(message)s"
+          datefmt: "%Y-%m-%d %H:%M:%S"
+      handlers:
+        default:
+          class: logging.StreamHandler
+          level: INFO
+          formatter: default
+          stream: ext://sys.stdout
+        file:
+          class: logging.handlers.TimedRotatingFileHandler
+          level: DEBUG
+          formatter: file
+          filename: log/app.log
+          when: D
+          interval: 1
+          backupCount: 7
+          encoding: utf-8
+      loggers:
+        src:
+          level: INFO
+          handlers: [ default, file ]
+        uvicorn:
+          level: INFO
+          propagate: no
+          handlers: [ default, file ]
+    http:
+      cors:
+        allow_origins: [ "*" ]
+        allow_methods: [ "GET", "POST", "PATCH", "OPTIONS" ]
+        allow_headers: [ "*" ]
+        allow_credentials: true
+
+# 开发环境配置
+dev: &dev
+  <<: *base
+  postgres: &postgres
+    url: postgresql+asyncpg://<username>:<password>@<ip>:<port>/<database>
+    pool_size: 1000
+    max_overflow: 500
+    pool_timeout: 30
+    pool_recycle: 1800
+  redis: &redis
+    host: <ip>
+    port: 6379
+    password: <password>
+    db: 0
+    connect_args:
+      max_connections: 100
+      socket_timeout: 10
+  milvus: &milvus
+    host: <ip>
+    port: 19530
+    user: root
+    password: <password>
+    db: <database>
+  es: &es
+    host: <ip>
+    ports:
+      - 9200
+      - 9300
+    username: elastic
+    password: <password>
+  llm_models:
+    deepseek:
+      client: "deepseek"
+      models:
+        deepseek-chat:
+          model_name:
+            - "deepseek-chat"
+          temperature: 0.6
+        deepseek-reasoner:
+          model_name:
+            - "deepseek-reasoner"
+          thinking: True
+          temperature: 0.3
+    dashscope:
+      client: "dashscope"
+      models:
+        qwen3:
+          model_name:
+            - "qwen3-235b-a22b"
+            - "qwen3-30b-a3b"
+          thinking: True
+          temperature: 0.7
+    moonshot:
+      client: "moonshot"
+      models:
+        kimi-k2:
+          model_name:
+            - "kimi-k2-0905-preview"
+          temperature: 0.6
+        kimi-k2-thinking:
+          model_name:
+            - "kimi-k2-thinking"
+          temperature: 1.0
+          thinking: True
+    zhipuai:
+      client: "zhipuai"
+      models:
+        glm:
+          model_name:
+            - "glm-4.6"
+          temperature: 0.6
+    ark:
+      client: "ark"
+      models:
+        doubao-seed:
+          model_name:
+            - "doubao-seed-1-6-251015"
+          temperature: 0.6
+          thinking: True
+    qianfan:
+      client: "qianfan"
+      models:
+        ernie:
+          model_name:
+            - "ernie-5.0-thinking-preview"
+          temperature: 0.6
+    siliconflow:
+      client: "siliconflow"
+      models:
+        qwen:
+          model_name:
+            - "Qwen/Qwen3-8B"
+          thinking: True
+          temperature: 0.6
+  emb_models:
+    dashscope:
+      model: "text-embedding-v4"
+    zhipuai:
+      model: "embedding-3"
+    ark:
+      model:
+        - "doubao-embedding-text-240715"
+        - "doubao-embedding-large-text-250515"
+    qianfan:
+      model: "embedding-v1"
+    siliconflow:
+      model:
+        - "BAAI/bge-large-zh-v1.5"
+        - "BAAI/bge-m3"
+
+  rerank_models:
+    dashscope:
+      model: "gte-rerank-v2"
+
+
+# 测试环境配置
+test: &test
+  <<: *base
+  postgres: *postgres
+  redis: *redis
+  milvus: *milvus
+  es: *es
+  llm_models:
+    local:
+      client: "local"
+      base_url: "http://<ip>:<port>/v1"
+      models:
+        qwen3:
+          model_name:
+            - "Qwen3-235B-A22B-Instruct-2507"
+          thinking: True
+          temperature: 0.7
+  emb_models:
+    local:
+      model: "Qwen3-Embedding-8B"
+      api_url: "http://<ip>:<port>/v1/embeddings"
+  rerank_models:
+    local:
+      model: "Qwen3-Reranker-8B"
+      api_url: "http://<ip>:<port>/v1/rerank"
+
+
+# 生成环境配置
+prod: &prod
+  <<: *base
+  postgres:
+    <<: *postgres
+    url: postgresql+asyncpg://<username>:<password>@<ip>:<port>/<database>
+  redis:
+    <<: *redis
+    host: <ip>
+  milvus:
+    <<: *milvus
+    host: <ip>
+  es:
+    <<: *es
+    host: <ip>
+  llm_models:
+    local:
+      client: "local"
+      base_url: "http://<ip>:<port>/v1"
+      models:
+        qwen3:
+          model_name:
+            - "qwen3-235b"
+          thinking: True
+          temperature: 0.7
+  emb_models:
+    local:
+      model: "Qwen3-Embedding-8B"
+      api_url: "http://<ip>:<port>/v1/embeddings"
+  rerank_models:
+    local:
+      model: "Qwen3-Reranker-8B"
+      api_url: "http://<ip>:<port>/v1/rerank"
