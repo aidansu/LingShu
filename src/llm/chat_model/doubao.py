@@ -1,21 +1,17 @@
-"""SiliconFlow chat models wrapper."""
+"""Doubao chat models wrapper."""
 
 from __future__ import annotations
 
 import json
 import logging
-import time
+import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from operator import itemgetter
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
-    Literal,
     Optional,
-    Sequence,
     Tuple,
     Type,
     Union,
@@ -25,7 +21,6 @@ from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
 )
-from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import (
     BaseChatModel,
     agenerate_from_stream,
@@ -44,22 +39,14 @@ from langchain_core.messages import (
     SystemMessageChunk,
     ToolMessage,
 )
-from langchain_core.output_parsers.base import OutputParserLike
-from langchain_core.output_parsers.openai_tools import (
-    JsonOutputKeyToolsParser,
-    PydanticToolsParser,
-)
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from langchain_core.runnables import Runnable, RunnableMap, RunnablePassthrough
-from langchain_core.tools import BaseTool
-from langchain_core.utils import get_from_dict_or_env
-from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
-API_TOKEN_TTL_SECONDS = 3 * 60
-SILICONFLOW_API_BASE = "https://api.siliconflow.cn/v1/chat/completions"
+DOUBAO_API_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+
 
 def _is_pydantic_class(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, BaseModel)
@@ -103,6 +90,7 @@ async def aconnect_sse(
 
     async with client.stream(method, url, **kwargs) as response:
         yield EventSource(response)
+
 
 def _convert_dict_to_message(_dict: Dict[str, Any]) -> BaseMessage:
     role = _dict.get("role")
@@ -186,6 +174,7 @@ def _convert_delta_to_message_chunk(
         return ChatMessageChunk(content=content, role=role)  # type: ignore[arg-type]
     return default_class(content=content)  # type: ignore[call-arg]
 
+
 def _truncate_params(payload: Dict[str, Any]) -> None:
     """Truncate temperature and top_p parameters between [0.01, 0.99].
     """
@@ -198,94 +187,120 @@ def _truncate_params(payload: Dict[str, Any]) -> None:
 
 
 """
-A wrapper around SiliconFlow's Chat API.
+A wrapper around Doubao's Chat API.
 
-To use, you should have the ``siliconflow`` python package installed, and the
-environment variable ``SILICON_FLOW_API_KEY`` set with your API key.
+To use, you should have the ``volcenginesdkarkruntime`` python package installed, and the
+environment variable `ARK_API_KEY` set with your API key.
 """
 
 
-class ChatSiliconFlow(BaseChatModel):
+class ChatDouBao(BaseChatModel):
 
     @property
     def lc_secrets(self) -> Dict[str, str]:
-        return {"siliconflow_api_key": "SILICONFLOW_API_KEY"}
+        return {"ark_api_key": "ARK_API_KEY"}
 
     @classmethod
     def get_lc_namespace(cls) -> List[str]:
         """Get the namespace of the langchain object."""
-        return ["langchain", "chat_models", "siliconflow"]
+        return ["langchain", "chat_models", "doubao"]
 
     @property
     def lc_attributes(self) -> Dict[str, Any]:
         attributes: Dict[str, Any] = {}
 
-        if self.siliconflow_api_base:
-            attributes["siliconflow_api_base"] = self.siliconflow_api_base
+        if self.ark_api_base:
+            attributes["ark_api_base"] = self.ark_api_base
 
         return attributes
 
     @property
     def _llm_type(self) -> str:
         """Return the type of chat model."""
-        return "siliconflow-chat"
+        return "doubao-chat"
 
     @property
     def _default_params(self) -> Dict[str, Any]:
-        """Get the default parameters for calling OpenAI API."""
+        """Get the default parameters for calling Doubao API."""
         params = {
             "model": self.model_name,
-            "stream": self.streaming,
-            "enable_thinking": self.enable_thinking,
             "temperature": self.temperature,
         }
         if self.max_tokens is not None:
             params["max_tokens"] = self.max_tokens
+        if self.thinking_type is not None:
+            params["thinking"] = {"type": self.thinking_type}
         return params
 
-
     # client:
-    siliconflow_api_key: Optional[str] = Field(default=None, alias="api_key")
-    """Automatically inferred from env var `SILICON_FLOW_API_KEY` if not provided."""
-    siliconflow_api_base: Optional[str] = Field(default=None, alias="api_base")
+    ark_api_key: Optional[str] = Field(default=None, alias="api_key")
+    """Automatically inferred from env var `ARK_API_KEY` if not provided."""
+    ark_api_base: Optional[str] = Field(default=None, alias="base_url")
     """Base URL path for API requests, leave blank if not using a proxy or service
         emulator.
     """
-    model_name: str = Field(default="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", alias="model")
+    model_name: str = Field(default="doubao-seed-1-6-251015", alias="model")
     """Model name to use."""
     streaming: bool = False
-    """Seed for generation"""
+    """Whether to stream the response."""
     max_tokens: Optional[int] = None
     """Maximum number of tokens to generate."""
     stop: Optional[Union[List[str], str]] = Field(default=None, alias="stop_sequences")
     """Default stop sequences."""
-    enable_thinking: bool = True
-    thinking_budget: int = 4096
+    thinking_type: Optional[str] = Field(default=None)
+    """思考模式类型: "disabled" (不使用深度思考能力), "enabled" (使用深度思考能力), "auto" (模型自行判断是否使用深度思考能力)"""
     temperature: float = 0.7
     """What sampling temperature to use."""
     top_p: float = 0.7
-    top_k: int = 50
+    """Top-p sampling parameter."""
     frequency_penalty: Optional[float] = None
+    """Frequency penalty parameter."""
+    presence_penalty: Optional[float] = None
+    """Presence penalty parameter."""
     n: int = 1
-    response_format: Dict[str, Any] = None
-
-
+    """Number of completions to generate."""
 
     model_config = ConfigDict(
         populate_by_name=True,
     )
 
+    @field_validator("thinking_type")
+    @classmethod
+    def validate_thinking_type(cls, v: Optional[str]) -> Optional[str]:
+        """验证 thinking_type 的值"""
+        if v is not None and v not in ("disabled", "enabled", "auto"):
+            raise ValueError(
+                f'thinking_type 必须是 "disabled", "enabled" 或 "auto" 之一，当前值: {v}'
+            )
+        return v
+
     @model_validator(mode="before")
     @classmethod
     def validate_environment(cls, values: Dict[str, Any]) -> Any:
-        values["siliconflow_api_key"] = get_from_dict_or_env(
-            values, ["siliconflow_api_key", "api_key"], "SILICONFLOW_API_KEY"
-        )
-        values["siliconflow_api_base"] = get_from_dict_or_env(
-            values, "siliconflow_api_base", "SILICONFLOW_API_BASE", default=SILICONFLOW_API_BASE
-        )
+        # 优先从传入的参数获取，然后从环境变量获取
+        api_key = values.get("ark_api_key") or values.get("api_key")
+        if not api_key:
+            api_key = os.environ.get("ARK_API_KEY")
+        
+        if not api_key:
+            raise ValueError(
+                "ark_api_key 是必需的，请提供 api_key 或设置环境变量 ARK_API_KEY"
+            )
+        
+        values["ark_api_key"] = api_key
+        values["ark_api_base"] = values.get("ark_api_base") or values.get("base_url") or DOUBAO_API_BASE
 
         return values
+
+    def __init__(self, **kwargs: Any):
+        super().__init__(**kwargs)
+        # 保存 API 密钥和基础 URL，用于 HTTP 请求
+        self._api_key = self.ark_api_key
+        # 确保 base_url 有默认值
+        self._api_base = self.ark_api_base or DOUBAO_API_BASE
+        # 确保 URL 以 / 结尾，以便正确拼接路径
+        if self._api_base and not self._api_base.endswith('/'):
+            self._api_base = self._api_base.rstrip('/')
 
     def _create_message_dicts(
             self, messages: List[BaseMessage], stop: Optional[List[str]]
@@ -299,9 +314,10 @@ class ChatSiliconFlow(BaseChatModel):
     def _create_chat_result(self, response: Union[dict, BaseModel]) -> ChatResult:
         generations = []
         if not isinstance(response, dict):
-            response = response.dict()
-        for res in response["choices"]:
-            message = _convert_dict_to_message(res["message"])
+            response = response.dict() if hasattr(response, 'dict') else response.model_dump() if hasattr(response, 'model_dump') else {}
+        
+        for res in response.get("choices", []):
+            message = _convert_dict_to_message(res.get("message", {}))
             generation_info = dict(finish_reason=res.get("finish_reason"))
             generations.append(
                 ChatGeneration(message=message, generation_info=generation_info)
@@ -329,8 +345,6 @@ class ChatSiliconFlow(BaseChatModel):
             )
             return generate_from_stream(stream_iter)
 
-        if self.siliconflow_api_key is None:
-            raise ValueError("Did not find siliconflow_api_key.")
         message_dicts, params = self._create_message_dicts(messages, stop)
         payload = {
             **params,
@@ -339,16 +353,25 @@ class ChatSiliconFlow(BaseChatModel):
             "stream": False,
         }
         _truncate_params(payload)
-        headers = {
-            "Authorization": f"Bearer {self.siliconflow_api_key}",
-            "Accept": "application/json",
-        }
+        
         import httpx
-
-        with httpx.Client(headers=headers, timeout=60) as client:
-            response = client.post(self.siliconflow_api_base, json=payload)  # type: ignore[arg-type]
-            response.raise_for_status()
-        return self._create_chat_result(response.json())
+        
+        # 确保 base_url 有值
+        api_base = self._api_base or DOUBAO_API_BASE
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        try:
+            with httpx.Client(headers=headers, timeout=60) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                return self._create_chat_result(response.json())
+        except Exception as e:
+            logger.error(f"Doubao API 调用失败: {e}")
+            raise
 
     def _stream(
             self,
@@ -358,55 +381,68 @@ class ChatSiliconFlow(BaseChatModel):
             **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         """Stream the chat response in chunks."""
-        if self.siliconflow_api_key is None:
-            raise ValueError("Did not find siliconflow_api_key.")
-        if self.siliconflow_api_base is None:
-            raise ValueError("Did not find siliconflow_api_base.")
         message_dicts, params = self._create_message_dicts(messages, stop)
         payload = {**params, **kwargs, "messages": message_dicts, "stream": True}
         _truncate_params(payload)
-        headers = {
-            "Authorization": f"Bearer {self.siliconflow_api_key}",
-            "Accept": "application/json",
-        }
 
         default_chunk_class = AIMessageChunk
+        
         import httpx
+        
+        # 确保 base_url 有值
+        api_base = self._api_base or DOUBAO_API_BASE
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
 
-        with httpx.Client(headers=headers, timeout=60) as client:
-            with connect_sse(
-                    client, "POST", self.siliconflow_api_base, json=payload
-            ) as event_source:
-                for sse in event_source.iter_sse():
-                    chunk = json.loads(sse.data)
-                    if len(chunk["choices"]) == 0:
-                        continue
-                    choice = chunk["choices"][0]
-                    usage = chunk.get("usage", None)
-                    model_name = chunk.get("model", "")
-                    chunk = _convert_delta_to_message_chunk(
-                        choice["delta"], default_chunk_class
-                    )
-                    finish_reason = choice.get("finish_reason", None)
+        try:
+            with httpx.Client(headers=headers, timeout=60) as client:
+                with connect_sse(
+                    client, "POST", url, json=payload
+                ) as event_source:
+                    for sse in event_source.iter_sse():
+                        if not sse.data or sse.data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(sse.data)
+                        except json.JSONDecodeError:
+                            continue
+                        
+                        if "choices" not in chunk or len(chunk["choices"]) == 0:
+                            continue
+                        
+                        choice = chunk["choices"][0]
+                        usage = chunk.get("usage", None)
+                        model_name = chunk.get("model", "")
+                        
+                        delta = choice.get("delta", {})
+                        chunk_msg = _convert_delta_to_message_chunk(delta, default_chunk_class)
+                        finish_reason = choice.get("finish_reason", None)
 
-                    generation_info = (
-                        {
-                            "finish_reason": finish_reason,
-                            "token_usage": usage,
-                            "model_name": model_name,
-                        }
-                        if finish_reason is not None
-                        else None
-                    )
-                    chunk = ChatGenerationChunk(
-                        message=chunk, generation_info=generation_info
-                    )
-                    if run_manager:
-                        run_manager.on_llm_new_token(chunk.text, chunk=chunk)
-                    yield chunk
+                        generation_info = (
+                            {
+                                "finish_reason": finish_reason,
+                                "token_usage": usage,
+                                "model_name": model_name,
+                            }
+                            if finish_reason is not None
+                            else None
+                        )
+                        chunk_msg = ChatGenerationChunk(
+                            message=chunk_msg, generation_info=generation_info
+                        )
+                        if run_manager:
+                            run_manager.on_llm_new_token(chunk_msg.text, chunk=chunk_msg)
+                        yield chunk_msg
 
-                    if finish_reason is not None:
-                        break
+                        if finish_reason is not None:
+                            break
+        except Exception as e:
+            logger.error(f"Doubao API 流式调用失败: {e}")
+            raise
 
     async def _agenerate(
             self,
@@ -423,8 +459,6 @@ class ChatSiliconFlow(BaseChatModel):
             )
             return await agenerate_from_stream(stream_iter)
 
-        if self.siliconflow_api_key is None:
-            raise ValueError("Did not find siliconflow_api_key.")
         message_dicts, params = self._create_message_dicts(messages, stop)
         payload = {
             **params,
@@ -433,16 +467,25 @@ class ChatSiliconFlow(BaseChatModel):
             "stream": False,
         }
         _truncate_params(payload)
-        headers = {
-            "Authorization": f"Bearer {self.siliconflow_api_key}",
-            "Accept": "application/json",
-        }
+        
         import httpx
-
-        async with httpx.AsyncClient(headers=headers, timeout=60) as client:
-            response = await client.post(self.siliconflow_api_base, json=payload)  # type: ignore[arg-type]
-            response.raise_for_status()
-        return self._create_chat_result(response.json())
+        
+        # 确保 base_url 有值
+        api_base = self._api_base or DOUBAO_API_BASE
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=60) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return self._create_chat_result(response.json())
+        except Exception as e:
+            logger.error(f"Doubao API 异步调用失败: {e}")
+            raise
 
     async def _astream(
             self,
@@ -451,52 +494,66 @@ class ChatSiliconFlow(BaseChatModel):
             run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
             **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
-        if self.siliconflow_api_key is None:
-            raise ValueError("Did not find siliconflow_api_key.")
-        if self.siliconflow_api_base is None:
-            raise ValueError("Did not find siliconflow_api_base.")
         message_dicts, params = self._create_message_dicts(messages, stop)
         payload = {**params, **kwargs, "messages": message_dicts, "stream": True}
         _truncate_params(payload)
-        headers = {
-            "Authorization": f"Bearer {self.siliconflow_api_key}",
-            "Accept": "application/json",
-        }
 
         default_chunk_class = AIMessageChunk
+        
         import httpx
+        
+        # 确保 base_url 有值
+        api_base = self._api_base or DOUBAO_API_BASE
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
 
-        async with httpx.AsyncClient(headers=headers, timeout=60) as client:
-            async with aconnect_sse(
-                    client, "POST", self.siliconflow_api_base, json=payload
-            ) as event_source:
-                async for sse in event_source.aiter_sse():
-                    chunk = json.loads(sse.data)
-                    if len(chunk["choices"]) == 0:
-                        continue
-                    choice = chunk["choices"][0]
-                    usage = chunk.get("usage", None)
-                    model_name = chunk.get("model", "")
-                    chunk = _convert_delta_to_message_chunk(
-                        choice["delta"], default_chunk_class
-                    )
-                    finish_reason = choice.get("finish_reason", None)
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=60) as client:
+                async with aconnect_sse(
+                    client, "POST", url, json=payload
+                ) as event_source:
+                    async for sse in event_source.aiter_sse():
+                        if not sse.data or sse.data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(sse.data)
+                        except json.JSONDecodeError:
+                            continue
+                        
+                        if "choices" not in chunk or len(chunk["choices"]) == 0:
+                            continue
+                        
+                        choice = chunk["choices"][0]
+                        usage = chunk.get("usage", None)
+                        model_name = chunk.get("model", "")
+                        
+                        delta = choice.get("delta", {})
+                        chunk_msg = _convert_delta_to_message_chunk(delta, default_chunk_class)
+                        finish_reason = choice.get("finish_reason", None)
 
-                    generation_info = (
-                        {
-                            "finish_reason": finish_reason,
-                            "token_usage": usage,
-                            "model_name": model_name,
-                        }
-                        if finish_reason is not None
-                        else None
-                    )
-                    chunk = ChatGenerationChunk(
-                        message=chunk, generation_info=generation_info
-                    )
-                    if run_manager:
-                        await run_manager.on_llm_new_token(chunk.text, chunk=chunk)
-                    yield chunk
+                        generation_info = (
+                            {
+                                "finish_reason": finish_reason,
+                                "token_usage": usage,
+                                "model_name": model_name,
+                            }
+                            if finish_reason is not None
+                            else None
+                        )
+                        chunk_msg = ChatGenerationChunk(
+                            message=chunk_msg, generation_info=generation_info
+                        )
+                        if run_manager:
+                            await run_manager.on_llm_new_token(chunk_msg.text, chunk=chunk_msg)
+                        yield chunk_msg
 
-                    if finish_reason is not None:
-                        break
+                        if finish_reason is not None:
+                            break
+        except Exception as e:
+            logger.error(f"Doubao API 异步流式调用失败: {e}")
+            raise
+

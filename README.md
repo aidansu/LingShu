@@ -36,17 +36,19 @@ uvicorn src.main:app
 LingShu 采用分层架构设计，结合高性能异步框架与现代开发工具链，为大型语言模型（LLM）提供灵活、可扩展的服务化能力。以下是核心架构模块和技术栈说明：
 
 ### 2.1. 技术栈
-* 环境管理: Python 3.10+
+* 环境管理: Python 3.12+
 * 依赖管理: UV 0.6.17
 * 服务器: Uvicorn 0.34.2
-* API 层: FastAPI 0.115.12
-* 模型服务: LangChain 0.3.24
+* API 层: FastAPI 0.121.1
+* 模型服务: LangChain 1.0.5
 
 ## 3. 接入的大模型
 LingShu 支持接入多个大模型平台，包括：
 - 深度求索：deepseek
 - 百炼：dashscope
-- 千帆：qianfan
+- 月之暗面：kimi
 - 智谱：zhipuai
+- 火山引擎：ark
+- 千帆：qianfan
 - 硅基流动：siliconflow
 
